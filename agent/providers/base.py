@@ -36,3 +36,7 @@ class ProveedorWhatsApp(ABC):
     async def validar_webhook(self, request: Request) -> dict | int | None:
         """Verificación GET del webhook (solo Meta la requiere). Retorna respuesta o None."""
         return None
+
+    async def verificar_firma(self, request: Request) -> bool:
+        """Verifica que el webhook POST venga realmente del proveedor. Por defecto no valida."""
+        return True

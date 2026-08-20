@@ -86,7 +86,11 @@ async def generar_respuesta(mensaje: str, historial: list[dict]) -> str:
             messages=mensajes
         )
 
-        respuesta = response.content[0].text
+        respuesta = next((b.text for b in response.content if b.type == "text"), None)
+        if respuesta is None:
+            logger.error(f"Respuesta de Claude sin bloque de texto: {response.content}")
+            return obtener_mensaje_error()
+
         logger.info(f"Respuesta generada ({response.usage.input_tokens} in / {response.usage.output_tokens} out)")
         return respuesta
 

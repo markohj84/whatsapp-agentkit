@@ -4,6 +4,8 @@
 import os
 import logging
 import base64
+import hashlib
+import hmac
 import httpx
 from fastapi import Request
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante
@@ -18,6 +20,24 @@ class ProveedorTwilio(ProveedorWhatsApp):
         self.account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         self.auth_token = os.getenv("TWILIO_AUTH_TOKEN")
         self.phone_number = os.getenv("TWILIO_PHONE_NUMBER")
+
+    async def verificar_firma(self, request: Request) -> bool:
+        """
+        Valida X-Twilio-Signature: HMAC-SHA1(auth_token, url + params_ordenados) en base64.
+        https://www.twilio.com/docs/usage/webhooks/webhooks-security
+        """
+        if not self.auth_token:
+            logger.warning("TWILIO_AUTH_TOKEN no configurado — no se puede verificar la firma")
+            return True
+        firma = request.headers.get("X-Twilio-Signature", "")
+        if not firma:
+            return False
+        form = await request.form()
+        base = str(request.url) + "".join(f"{k}{v}" for k, v in sorted(form.items()))
+        esperada = base64.b64encode(
+            hmac.new(self.auth_token.encode(), base.encode(), hashlib.sha1).digest()
+        ).decode()
+        return hmac.compare_digest(firma, esperada)
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """Parsea el payload form-encoded de Twilio."""

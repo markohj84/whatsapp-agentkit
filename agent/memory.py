@@ -75,7 +75,7 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
         query = (
             select(Mensaje)
             .where(Mensaje.telefono == telefono)
-            .order_by(Mensaje.timestamp.desc())
+            .order_by(Mensaje.id.desc())
             .limit(limite)
         )
         result = await session.execute(query)
@@ -97,5 +97,5 @@ async def limpiar_historial(telefono: str):
         result = await session.execute(query)
         mensajes = result.scalars().all()
         for msg in mensajes:
-            session.delete(msg)
+            await session.delete(msg)
         await session.commit()

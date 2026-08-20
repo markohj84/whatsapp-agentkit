@@ -9,7 +9,7 @@ Funciona con cualquier proveedor (Meta, Twilio) gracias a la capa de providers.
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
@@ -63,41 +63,51 @@ async def webhook_verificacion(request: Request):
     return {"status": "ok"}
 
 
+async def procesar_mensaje(msg):
+    """Genera la respuesta y la envía. Corre en background, fuera del ciclo de vida del webhook."""
+    try:
+        logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
+
+        # Obtener historial ANTES de guardar el mensaje actual
+        # (brain.py agrega el mensaje actual, evitando duplicados)
+        historial = await obtener_historial(msg.telefono)
+
+        # Generar respuesta con Claude
+        respuesta = await generar_respuesta(msg.texto, historial)
+
+        # Guardar mensaje del usuario Y respuesta del agente en memoria
+        await guardar_mensaje(msg.telefono, "user", msg.texto)
+        await guardar_mensaje(msg.telefono, "assistant", respuesta)
+
+        # Enviar respuesta por WhatsApp via el proveedor
+        await proveedor.enviar_mensaje(msg.telefono, respuesta)
+
+        logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
+    except Exception as e:
+        logger.error(f"Error procesando mensaje de {msg.telefono}: {e}")
+
+
 @app.post("/webhook")
-async def webhook_handler(request: Request):
+async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
     """
     Recibe mensajes de WhatsApp via el proveedor configurado.
-    Procesa el mensaje, genera respuesta con Claude y la envía de vuelta.
+    Responde 200 de inmediato y procesa en background — si Claude tarda más de
+    lo que el proveedor espera, un timeout ya no dispara reintentos duplicados.
     """
+    if not await proveedor.verificar_firma(request):
+        logger.warning("Firma de webhook inválida — request rechazado")
+        raise HTTPException(status_code=401, detail="Firma inválida")
+
     try:
-        # Parsear webhook — el proveedor normaliza el formato
         mensajes = await proveedor.parsear_webhook(request)
-
-        for msg in mensajes:
-            # Ignorar mensajes propios o vacíos
-            if msg.es_propio or not msg.texto:
-                continue
-
-            logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
-
-            # Obtener historial ANTES de guardar el mensaje actual
-            # (brain.py agrega el mensaje actual, evitando duplicados)
-            historial = await obtener_historial(msg.telefono)
-
-            # Generar respuesta con Claude
-            respuesta = await generar_respuesta(msg.texto, historial)
-
-            # Guardar mensaje del usuario Y respuesta del agente en memoria
-            await guardar_mensaje(msg.telefono, "user", msg.texto)
-            await guardar_mensaje(msg.telefono, "assistant", respuesta)
-
-            # Enviar respuesta por WhatsApp via el proveedor
-            await proveedor.enviar_mensaje(msg.telefono, respuesta)
-
-            logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
-
+    except Exception as e:
+        logger.error(f"Error parseando webhook: {e}")
         return {"status": "ok"}
 
-    except Exception as e:
-        logger.error(f"Error en webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    for msg in mensajes:
+        # Ignorar mensajes propios o vacíos
+        if msg.es_propio or not msg.texto:
+            continue
+        background_tasks.add_task(procesar_mensaje, msg)
+
+    return {"status": "ok"}
