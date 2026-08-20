@@ -18,9 +18,10 @@ load_dotenv()
 # Configuración de base de datos
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./agentkit.db")
 
-# Si es PostgreSQL en producción, ajustar el esquema de URL
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+# Si es PostgreSQL en producción, ajustar el esquema de URL.
+# Railway (y otros) a veces dan "postgres://" en vez de "postgresql://".
+if DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = "postgresql+asyncpg://" + DATABASE_URL.split("://", 1)[1]
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
