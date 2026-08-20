@@ -37,6 +37,11 @@ class ProveedorTwilio(ProveedorWhatsApp):
         esperada = base64.b64encode(
             hmac.new(self.auth_token.encode(), base.encode(), hashlib.sha1).digest()
         ).decode()
+        # DEBUG TEMPORAL — quitar despues de diagnosticar el mismatch de firma
+        logger.warning(
+            f"[debug-firma] url={str(request.url)!r} token={self.auth_token[:4]!r}...{self.auth_token[-4:]!r} "
+            f"token_len={len(self.auth_token)} recibida={firma!r} esperada={esperada!r}"
+        )
         return hmac.compare_digest(firma, esperada)
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
